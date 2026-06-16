@@ -1,0 +1,8 @@
+{
+    "WEB_PORT": 8866,
+    "API_SECRET": "your_secret_key_here",
+    "WEB_HISTORY_LIMIT": 2000,
+    "BATCH_MAX_CHARS": 3800,
+    "TG_BOT_TOKEN": "",
+    "TG_CHAT_ID": ""
+}

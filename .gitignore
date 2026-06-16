@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Agent 运行时状态
+last_pos.txt
+
+# Go 编译产物
+/server/udp-central
+/server/udp-central.exe
+/agent/udp-agent
+/agent/udp-agent.exe
+*.exe
+
+# 本地配置 / 凭据
+server.json
+*.env
+.env
+
+# 编辑器 / 系统
+.idea/
+.vscode/
+*.swp
+.DS_Store

@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UDP Game Monitor</title>
+    <style>
+        :root { --bg-color: #121212; --card-bg: #1e1e1e; --text-color: #e0e0e0; --highlight: #bb86fc; --accent: #03dac6; --danger: #cf6679;}
+        body { background-color: var(--bg-color); color: var(--text-color); font-family: 'Consolas', monospace; margin: 0; padding: 20px; overflow-x: hidden; }
+        .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid var(--card-bg); padding-bottom: 15px; margin-bottom: 15px; }
+        .header-left h1 { margin: 0; font-size: 1.5rem; color: var(--highlight); }
+        .status { font-size: 0.9rem; color: #888; text-align: right; display: flex; flex-direction: column; align-items: flex-end;}
+        .status .dot { display: inline-block; width: 10px; height: 10px; background-color: var(--danger); border-radius: 50%; margin-right: 5px; transition: background-color 0.3s;}
+        .status .dot.connected { background-color: var(--accent); animation: blink 1.5s infinite; }
+        @keyframes blink { 0% {opacity: 1;} 50% {opacity: 0.3;} 100% {opacity: 1;} }
+
+        .btn-clear { background-color: rgba(207, 102, 121, 0.1); color: var(--danger); border: 1px solid rgba(207, 102, 121, 0.4); padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; margin-top: 8px; font-family: inherit;}
+        .btn-clear:hover { background-color: rgba(207, 102, 121, 0.2); }
+
+        .filter-section { display: flex; align-items: center; justify-content: flex-start; margin-bottom: 20px; flex-wrap: wrap; gap: 20px; z-index: 100; position: relative;}
+        .date-tabs { display: flex; gap: 10px; }
+        .date-btn { background-color: var(--card-bg); color: #888; border: 1px solid #333; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; font-family: inherit; font-weight: bold; transition: all 0.2s;}
+        .date-btn.active { background-color: rgba(3, 218, 198, 0.1); color: var(--accent); border-color: var(--accent); }
+        .date-btn:hover:not(.active) { border-color: #666; color: #ccc;}
+
+        /* 自定义下拉框 */
+        .custom-select-wrapper { position: relative; user-select: none; width: 200px; }
+        .custom-select { position: relative; display: flex; align-items: center; justify-content: space-between; background-color: var(--card-bg); border: 1px solid var(--highlight); border-radius: 4px; padding: 8px 12px; font-size: 14px; font-weight: bold; color: var(--text-color); cursor: pointer; transition: all 0.3s ease; }
+        .custom-select:hover { border-color: var(--accent); }
+        .custom-select .arrow { border: solid var(--text-color); border-width: 0 2px 2px 0; display: inline-block; padding: 3px; transform: rotate(45deg); transition: transform 0.3s ease, margin 0.3s ease; margin-bottom: 2px; }
+        .custom-select.open { border-color: var(--accent); box-shadow: 0 0 8px rgba(3, 218, 198, 0.3); }
+        .custom-select.open .arrow { transform: rotate(-135deg); margin-bottom: -4px; border-color: var(--accent); }
+        .custom-options { position: absolute; top: 100%; left: 0; right: 0; margin-top: 8px; background-color: var(--card-bg); border: 1px solid #333; border-radius: 6px; box-shadow: 0 8px 16px rgba(0,0,0,0.5); opacity: 0; visibility: hidden; transform: translateY(-10px); transition: all 0.2s ease; z-index: 999; overflow: hidden; }
+        .custom-select-wrapper.open .custom-options { opacity: 1; visibility: visible; transform: translateY(0); }
+        .custom-option { padding: 10px 12px; font-size: 14px; font-weight: bold; color: #ccc; cursor: pointer; transition: background-color 0.2s, color 0.2s; }
+        .custom-option:hover { background-color: #333; color: #fff; }
+        .custom-option.selected { color: var(--accent); background-color: rgba(3, 218, 198, 0.1); }
+
+        .container { display: flex; flex-direction: column; gap: 15px; z-index: 1;}
+
+        /* 动画 1: 单条新消息的顶部滑入 (SSE 推送用) */
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(-30px) scale(0.98); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        .msg-card.anim-slide { animation: slideIn 0.5s ease-out forwards; }
+
+        /* 动画 2: 整个列表的淡入与微上浮 (切换条件时使用) */
+        @keyframes listFadeIn {
+            from { opacity: 0; transform: translateY(15px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .anim-list-update { animation: listFadeIn 0.3s ease-out forwards; }
+
+        .msg-card {
+            background-color: var(--card-bg); border-left: 4px solid var(--highlight);
+            padding: 15px; border-radius: 6px; white-space: pre-wrap; word-wrap: break-word;
+            line-height: 1.5; font-size: 14px; box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+
+        .msg-time { font-size: 12px; color: #888; margin-bottom: 8px; border-bottom: 1px dashed #333; padding-bottom: 5px;}
+        b { color: var(--accent); }
+        code { background-color: #333; padding: 2px 4px; border-radius: 4px; color: #ff9800; font-family: inherit;}
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-left">
+            <h1>📡 UDP Monitor</h1>
+        </div>
+        <div class="status">
+            <div><span class="dot" id="ws-dot"></span><span id="ws-text">SSE 连接中...</span></div>
+            <button class="btn-clear" onclick="clearHistory()">🗑️ 清空历史记录</button>
+        </div>
+    </div>
+
+    <div class="filter-section">
+        <div class="date-tabs">
+            <button id="btn-today" class="date-btn active" onclick="setDateFilter('today')"></button>
+            <button id="btn-yesterday" class="date-btn" onclick="setDateFilter('yesterday')"></button>
+        </div>
+
+        <div class="custom-select-wrapper" id="custom-select-wrapper">
+            <div class="custom-select" id="custom-select">
+                <span id="select-trigger-text">全部</span>
+                <div class="arrow"></div>
+            </div>
+            <div class="custom-options">
+                <div class="custom-option selected" data-value="ALL">全部</div>
+                <div class="custom-option" data-value="HOBO">HOBO</div>
+                <div class="custom-option" data-value="LM">LM</div>
+                <div class="custom-option" data-value="JZ">JZ</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container" id="messages">
+        <div style="color: #888;">等待加载数据...</div>
+    </div>
+
+    <script>
+        let currentData = [];
+        let dateFilterMode = 'today';
+        let logFormatToday = '';
+        let logFormatYesterday = '';
+        let currentUserFilter = 'ALL';
+
+        // 原生 EventSource：单向推送，浏览器自动重连
+        const es = new EventSource('/api/stream');
+        es.onopen = () => {
+            document.getElementById('ws-dot').classList.add('connected');
+            document.getElementById('ws-text').innerText = '实时 SSE 已连接';
+        };
+        es.onerror = () => {
+            document.getElementById('ws-dot').classList.remove('connected');
+            document.getElementById('ws-text').innerText = 'SSE 断开，重连中...';
+        };
+
+        function initDates() {
+            const today = new Date();
+            const yesterday = new Date(today);
+            yesterday.setDate(yesterday.getDate() - 1);
+
+            const formatLogDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            const formatDisplayDate = (d) => `${String(d.getMonth() + 1).padStart(2, '0')}月${String(d.getDate()).padStart(2, '0')}日`;
+
+            logFormatToday = formatLogDate(today);
+            logFormatYesterday = formatLogDate(yesterday);
+
+            document.getElementById('btn-today').innerText = formatDisplayDate(today);
+            document.getElementById('btn-yesterday').innerText = formatDisplayDate(yesterday);
+        }
+
+        function setDateFilter(mode) {
+            if (dateFilterMode === mode) return; // 避免重复点击触发无意义渲染
+            dateFilterMode = mode;
+            document.getElementById('btn-today').className = mode === 'today' ? 'date-btn active' : 'date-btn';
+            document.getElementById('btn-yesterday').className = mode === 'yesterday' ? 'date-btn active' : 'date-btn';
+            renderAllMessages();
+        }
+
+        async function clearHistory() {
+            if(!confirm("⚠️ 确定要清空所有历史监控记录吗？")) return;
+            try { await fetch('/api/clear', { method: 'POST' }); } catch(e) { }
+        }
+
+        // 下拉框逻辑
+        const selectWrapper = document.getElementById('custom-select-wrapper');
+        const customSelect = document.getElementById('custom-select');
+        const triggerText = document.getElementById('select-trigger-text');
+        const options = document.querySelectorAll('.custom-option');
+
+        customSelect.addEventListener('click', function() {
+            selectWrapper.classList.toggle('open');
+            customSelect.classList.toggle('open');
+        });
+
+        for (const option of options) {
+            option.addEventListener('click', function() {
+                const newValue = this.getAttribute('data-value');
+                // 仅在值发生变化时执行渲染动画
+                if (currentUserFilter !== newValue) {
+                    options.forEach(opt => opt.classList.remove('selected'));
+                    this.classList.add('selected');
+                    triggerText.innerText = this.innerText;
+                    currentUserFilter = newValue;
+                    renderAllMessages();
+                }
+                selectWrapper.classList.remove('open');
+                customSelect.classList.remove('open');
+            });
+        }
+
+        window.addEventListener('click', function(e) {
+            if (!selectWrapper.contains(e.target)) {
+                selectWrapper.classList.remove('open');
+                customSelect.classList.remove('open');
+            }
+        });
+
+        function processItemFilters(item) {
+            const targetDateStr = dateFilterMode === 'today' ? logFormatToday : logFormatYesterday;
+            if (item.time.split(' ')[0] !== targetDateStr) return null;
+            if (currentUserFilter === 'ALL') return { ...item };
+
+            const targetUser = currentUserFilter + '_IPLC';
+            const parts = item.content.split(/\r?\n👤 <b>/);
+
+            if (parts.length > 1) {
+                let newContent = parts[0];
+                let hasMatch = false;
+                for (let i = 1; i < parts.length; i++) {
+                    if (parts[i].startsWith(targetUser + "</b>") || parts[i].startsWith(targetUser + " (cont.)</b>")) {
+                        newContent += '\n👤 <b>' + parts[i];
+                        hasMatch = true;
+                    }
+                }
+                if (hasMatch) return { time: item.time, content: newContent };
+            }
+            return null;
+        }
+
+        function renderSingleCard(item, container, withAnimation = false) {
+            const card = document.createElement('div');
+            card.className = 'msg-card' + (withAnimation ? ' anim-slide' : '');
+            card.innerHTML = `<div class="msg-time">🕒 接收时间: ${item.time}</div>${item.content}`;
+            if (withAnimation) container.prepend(card); else container.appendChild(card);
+        }
+
+        // 重新渲染整个列表，并触发全局过度动画
+        function renderAllMessages() {
+            const container = document.getElementById('messages');
+
+            // 关键：移除动画类并强制重绘浏览器 DOM 树，以重新触发动画
+            container.classList.remove('anim-list-update');
+            void container.offsetWidth;
+
+            container.innerHTML = '';
+            let renderedCount = 0;
+            currentData.forEach(item => {
+                const processed = processItemFilters(item);
+                if (processed) {
+                    renderSingleCard(processed, container, false);
+                    renderedCount++;
+                }
+            });
+
+            if (renderedCount === 0) {
+                container.innerHTML = `<div style="color: #888; margin-top: 10px;">暂无UDP日志记录。</div>`;
+            }
+
+            // 加回动画类
+            container.classList.add('anim-list-update');
+        }
+
+        es.addEventListener('new_log', (e) => {
+            const newItem = JSON.parse(e.data);
+            currentData.unshift(newItem);
+            if(currentData.length > 2000) currentData.pop();
+
+            const container = document.getElementById('messages');
+            if (container.innerHTML.includes("没有找到流量记录") || container.innerHTML.includes("等待加载数据")) {
+                container.innerHTML = '';
+            }
+
+            const processed = processItemFilters(newItem);
+            if (processed) {
+                renderSingleCard(processed, container, true); // 实时新消息保留顶部滑入效果
+            }
+        });
+
+        es.addEventListener('history_cleared', () => {
+            currentData = [];
+            const container = document.getElementById('messages');
+            container.classList.remove('anim-list-update');
+            void container.offsetWidth;
+            container.innerHTML = '<div style="color: #888;">暂无来自节点的监控数据...</div>';
+            container.classList.add('anim-list-update');
+        });
+
+        async function fetchInitialData() {
+            try {
+                const response = await fetch('/api/data?t=' + new Date().getTime());
+                currentData = await response.json();
+                renderAllMessages();
+            } catch (error) {
+                document.getElementById('messages').innerHTML = '<div style="color: #cf6679;">获取历史数据失败，等待实时推送...</div>';
+            }
+        }
+
+        initDates();
+        fetchInitialData();
+    </script>
+</body>
+</html>
