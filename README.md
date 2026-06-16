@@ -50,13 +50,18 @@ bash <(curl -fsSL https://raw.githubusercontent.com/lengmo23/udp-monitor/main/in
 git clone https://github.com/lengmo23/udp-monitor.git && cd udp-monitor && bash install.sh
 ```
 
-运行后选择角色：
+运行后选择操作：
 
 ```
-  1) Server (中央控制台)
-  2) Agent  (节点采集端)
-请选择要安装的角色 [1/2]:
+  1) 安装 Server (中央控制台)
+  2) 安装 Agent  (节点采集端)
+  3) 卸载 Server
+  4) 卸载 Agent
+请选择 [1/2/3/4]:
 ```
+
+> 卸载会停止并移除对应的 systemd 服务和二进制，并询问是否一并删除配置文件 / GeoIP 数据库。
+> 也可直接带参数运行跳过菜单，如 `bash install.sh 3`（卸载 Server）。
 
 ### 选 1：Server（中央控制台）
 

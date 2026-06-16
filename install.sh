@@ -14,20 +14,26 @@ CONFIG_DIR="/etc/udp-monitor"
 SUDO=""
 if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; fi
 
-# 自举：若本地缺少源码（例如通过 curl 直接运行本脚本），自动克隆仓库后再执行
 REPO_URL="https://github.com/lengmo23/udp-monitor.git"
-if [ ! -f "$SCRIPT_DIR/server/central_server.go" ] || [ ! -f "$SCRIPT_DIR/agent/udp_agent.go" ]; then
+
+# 安装动作需要源码：通过 curl 直接运行时本地无源码 → 克隆后带着已选角色重新执行。
+# 卸载动作不需要源码，所以本函数只在安装分支里调用。
+ensure_source() {
+    if [ -f "$SCRIPT_DIR/server/central_server.go" ] && [ -f "$SCRIPT_DIR/agent/udp_agent.go" ]; then
+        return
+    fi
     echo "[*] 未检测到本地源码，正在克隆仓库..."
     if ! command -v git >/dev/null 2>&1; then
         $SUDO apt-get update -y && $SUDO apt-get install -y git
     fi
+    local TMP_SRC
     TMP_SRC="$(mktemp -d)"
     if ! git clone --depth 1 "$REPO_URL" "$TMP_SRC"; then
         echo "[❌ 错误] 克隆仓库失败，请检查网络。"
         exit 1
     fi
-    exec bash "$TMP_SRC/install.sh"
-fi
+    exec bash "$TMP_SRC/install.sh" "$1"  # 把已选角色传下去，避免再次询问
+}
 
 # 生成随机 API 密钥（优先 openssl，退化用 /dev/urandom）
 gen_secret() {
@@ -233,16 +239,70 @@ EOF
     echo "====================================================="
 }
 
+# ==================== 卸载 ====================
+uninstall_server() {
+    local SERVICE_NAME="udp-central"
+    local BIN="/opt/udp-monitor/udp-central"
+    local CONFIG_FILE="$CONFIG_DIR/server.json"
+
+    echo "[*] 停止并禁用服务 $SERVICE_NAME ..."
+    $SUDO systemctl stop "$SERVICE_NAME" 2>/dev/null
+    $SUDO systemctl disable "$SERVICE_NAME" 2>/dev/null
+    $SUDO rm -f "/etc/systemd/system/$SERVICE_NAME.service"
+    $SUDO systemctl daemon-reload
+    $SUDO rm -f "$BIN"
+    echo "[+] 已移除服务与二进制。"
+
+    read -rp "是否同时删除配置文件 $CONFIG_FILE (含端口/密钥)? [y/N]: " DEL_CFG
+    case "$DEL_CFG" in
+        y|Y) $SUDO rm -f "$CONFIG_FILE"; $SUDO rmdir "$CONFIG_DIR" 2>/dev/null; echo "[+] 配置文件已删除。" ;;
+        *)   echo "[*] 保留配置文件: $CONFIG_FILE" ;;
+    esac
+    echo "✅ Server 卸载完成。"
+}
+
+uninstall_agent() {
+    local LOG_FILE="/var/log/udp_agent.log"
+    local GEOIP_DB="/usr/share/GeoIP/ipinfo_lite.mmdb"
+
+    echo "[*] 停止并禁用 agent 服务 (含旧版 Python 服务名) ..."
+    for svc in udp-agent udp_agent; do
+        $SUDO systemctl stop "$svc" 2>/dev/null
+        $SUDO systemctl disable "$svc" 2>/dev/null
+        $SUDO rm -f "/etc/systemd/system/$svc.service"
+    done
+    $SUDO systemctl daemon-reload
+
+    $SUDO rm -f /opt/udp-monitor/udp-agent /opt/udp-monitor/last_pos.txt
+    $SUDO rm -f /root/udp_agent.py /root/last_pos.txt   # 旧版 Python agent 残留
+    $SUDO rm -f "$LOG_FILE"
+    echo "[+] 已移除服务、二进制、日志与位置记录。"
+
+    read -rp "是否删除 GeoIP 数据库 $GEOIP_DB? [y/N]: " DEL_DB
+    case "$DEL_DB" in
+        y|Y) $SUDO rm -f "$GEOIP_DB"; echo "[+] GeoIP 数据库已删除。" ;;
+        *)   echo "[*] 保留 GeoIP 数据库: $GEOIP_DB" ;;
+    esac
+    echo "✅ Agent 卸载完成。"
+}
+
 # ==================== 入口 ====================
-echo "====================================================="
-echo "          UDP Cloud Monitor 部署脚本"
-echo "====================================================="
-echo "  1) Server (中央控制台)"
-echo "  2) Agent  (节点采集端)"
-echo "-----------------------------------------------------"
-read -rp "请选择要安装的角色 [1/2]: " ROLE
+ROLE="$1"  # 支持从参数/re-exec 传入，跳过菜单
+if [ -z "$ROLE" ]; then
+    echo "====================================================="
+    echo "          UDP Cloud Monitor 部署脚本"
+    echo "====================================================="
+    echo "  1) 安装 Server (中央控制台)"
+    echo "  2) 安装 Agent  (节点采集端)"
+    echo "  3) 卸载 Server"
+    echo "  4) 卸载 Agent"
+    echo "-----------------------------------------------------"
+    read -rp "请选择 [1/2/3/4]: " ROLE
+fi
 case "$ROLE" in
-    1) install_server ;;
-    2) install_agent ;;
-    *) echo "[❌ 错误] 无效选择: '$ROLE'（请输入 1 或 2）"; exit 1 ;;
+    1) ensure_source 1; install_server ;;
+    2) ensure_source 2; install_agent ;;
+    3) uninstall_server ;;
+    4) uninstall_agent ;;
+    *) echo "[❌ 错误] 无效选择: '$ROLE'（请输入 1-4）"; exit 1 ;;
 esac
