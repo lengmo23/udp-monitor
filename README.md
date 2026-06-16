@@ -38,7 +38,7 @@ udp-monitor/
 
 Server 和 Agent 共用同一个交互式脚本，运行后按提示选择角色即可。
 
-**一键执行**（脚本会自动下载源码 tar 包并运行，**不需要 git**，只需 `curl` 或 `wget` 之一 + `tar`）：
+**一键执行**（脚本自动下载对应架构的**预编译二进制**，**服务器无需安装 Go、也无需源码**，只需 `curl` 或 `wget`）：
 
 ```bash
 # curl
@@ -48,16 +48,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/lengmo23/udp-monitor/main/in
 bash <(wget -qO- https://raw.githubusercontent.com/lengmo23/udp-monitor/main/install.sh)
 ```
 
-或先下载整个仓库再运行（任选其一，都不依赖 git）：
-
-```bash
-# tar 包方式
-curl -fsSL https://github.com/lengmo23/udp-monitor/archive/refs/heads/main.tar.gz | tar xz
-cd udp-monitor-main && bash install.sh
-
-# 或 git 方式
-git clone https://github.com/lengmo23/udp-monitor.git && cd udp-monitor && bash install.sh
-```
+> 二进制来自 [GitHub Releases](https://github.com/lengmo23/udp-monitor/releases/latest)，提供 linux amd64 / arm64。其它架构见下方「自行编译」。
 
 运行后选择操作：
 
@@ -75,7 +66,7 @@ git clone https://github.com/lengmo23/udp-monitor.git && cd udp-monitor && bash 
 ### 选 1：Server（中央控制台）
 
 - 自动生成 **端口** 和 **API 密钥**（也可回车用随机端口或手动指定端口）
-- 检测/安装 Go → 编译单二进制 → 写配置 → 注册并启动 systemd 服务
+- 下载预编译二进制 (无需 Go) → 写配置 → 注册并启动 systemd 服务
 - 安装结束会打印出端口和密钥，**记下来**，安装 Agent 时要用
 
 > ipinfo token 不在这一步处理——它是 ipinfo.io 的外部凭据、且只有 Agent 下载 GeoIP 时才用到。
@@ -90,9 +81,9 @@ git clone https://github.com/lengmo23/udp-monitor.git && cd udp-monitor && bash 
 | ipinfo token | 用于下载 GeoIP 数据库，可留空（留空则跳过下载，需手动放数据库） |
 | API 密钥 | 必填，须与 Server 端打印出来的密钥一致 |
 
-### 进阶：不想在服务器上装 Go
+### 自行编译（其它架构 / 不想用预编译）
 
-可在本机交叉编译，把单个二进制 scp 到目标机：
+默认安装直接下预编译二进制，无需 Go。若你的架构不是 amd64/arm64，可在任意有 Go ≥1.19 的机器上交叉编译，再 scp 到目标机：
 
 ```bash
 # Server
@@ -128,13 +119,12 @@ scp udp-agent root@<node>:/opt/udp-monitor/
 
 ## 依赖
 
-### Server (Go)
-- 构建期：Go 1.16+（仅标准库，无第三方依赖）
-- 运行期：无（单个静态二进制）
+- **运行期：无**。安装脚本直接下载预编译静态二进制（GitHub Releases，linux amd64/arm64），服务器不需要 Go。
+- Agent 的 GeoIP 识别需要 `ipinfo_lite.mmdb` 数据库文件（安装时可自动下载）。
 
-### Agent (Go)
-- 构建期：Go 1.19+，依赖 github.com/oschwald/maxminddb-golang（自动拉取）
-- 运行期：无（单个静态二进制）；GeoIP 识别需 `ipinfo_lite.mmdb` 数据库文件
+### 自行编译（可选）
+- Server: Go 1.16+（仅标准库）
+- Agent : Go 1.19+（依赖 github.com/oschwald/maxminddb-golang，自动拉取）
 
 ## License
 
