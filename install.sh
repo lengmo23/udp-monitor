@@ -14,25 +14,44 @@ CONFIG_DIR="/etc/udp-monitor"
 SUDO=""
 if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; fi
 
-REPO_URL="https://github.com/lengmo23/udp-monitor.git"
+REPO_TARBALL="https://github.com/lengmo23/udp-monitor/archive/refs/heads/main.tar.gz"
 
-# 安装动作需要源码：通过 curl 直接运行时本地无源码 → 克隆后带着已选角色重新执行。
+# 安装动作需要源码：通过 curl/wget 直接运行本脚本时本地无源码 →
+# 用 curl/wget 下载 tar 包并解压（不依赖 git），再带着已选角色重新执行。
 # 卸载动作不需要源码，所以本函数只在安装分支里调用。
 ensure_source() {
     if [ -f "$SCRIPT_DIR/server/central_server.go" ] && [ -f "$SCRIPT_DIR/agent/udp_agent.go" ]; then
         return
     fi
-    echo "[*] 未检测到本地源码，正在克隆仓库..."
-    if ! command -v git >/dev/null 2>&1; then
-        $SUDO apt-get update -y && $SUDO apt-get install -y git
-    fi
-    local TMP_SRC
+    echo "[*] 未检测到本地源码，正在下载仓库 (tar 包，无需 git)..."
+    local TMP_SRC TARBALL
     TMP_SRC="$(mktemp -d)"
-    if ! git clone --depth 1 "$REPO_URL" "$TMP_SRC"; then
-        echo "[❌ 错误] 克隆仓库失败，请检查网络。"
+    TARBALL="$TMP_SRC/src.tar.gz"
+
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL "$REPO_TARBALL" -o "$TARBALL"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -qO "$TARBALL" "$REPO_TARBALL"
+    else
+        echo "[❌ 错误] 需要 curl 或 wget 之一来下载源码。"
         exit 1
     fi
-    exec bash "$TMP_SRC/install.sh" "$1"  # 把已选角色传下去，避免再次询问
+    if [ ! -s "$TARBALL" ]; then
+        echo "[❌ 错误] 下载失败，请检查网络。"
+        exit 1
+    fi
+
+    tar -xzf "$TARBALL" -C "$TMP_SRC" || { echo "[❌ 错误] 解压失败（需要 tar）。"; exit 1; }
+    # GitHub tar 包解出来是 udp-monitor-main/ 目录
+    local EXTRACTED=""
+    for d in "$TMP_SRC"/udp-monitor-*/; do
+        [ -d "$d" ] && EXTRACTED="${d%/}" && break
+    done
+    if [ -z "$EXTRACTED" ] || [ ! -f "$EXTRACTED/install.sh" ]; then
+        echo "[❌ 错误] 解压后未找到源码。"
+        exit 1
+    fi
+    exec bash "$EXTRACTED/install.sh" "$1"  # 把已选角色传下去，避免再次询问
 }
 
 # 生成随机 API 密钥（优先 openssl，退化用 /dev/urandom）

@@ -38,15 +38,24 @@ udp-monitor/
 
 Server 和 Agent 共用同一个交互式脚本，运行后按提示选择角色即可。
 
-**一键执行**（脚本会自动克隆仓库并运行，需已装 `curl`）：
+**一键执行**（脚本会自动下载源码 tar 包并运行，**不需要 git**，只需 `curl` 或 `wget` 之一 + `tar`）：
 
 ```bash
+# curl
 bash <(curl -fsSL https://raw.githubusercontent.com/lengmo23/udp-monitor/main/install.sh)
+
+# 或 wget
+bash <(wget -qO- https://raw.githubusercontent.com/lengmo23/udp-monitor/main/install.sh)
 ```
 
-或先克隆再运行：
+或先下载整个仓库再运行（任选其一，都不依赖 git）：
 
 ```bash
+# tar 包方式
+curl -fsSL https://github.com/lengmo23/udp-monitor/archive/refs/heads/main.tar.gz | tar xz
+cd udp-monitor-main && bash install.sh
+
+# 或 git 方式
 git clone https://github.com/lengmo23/udp-monitor.git && cd udp-monitor && bash install.sh
 ```
 
